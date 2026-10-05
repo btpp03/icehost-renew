@@ -318,8 +318,8 @@ def run(p, port):
 
     # 5) 保活：不在运行就 start
     state = ""
-    ms = re.search(r"([A-ZŁĄCZEBIU]{4,})\s*\((\d+godz[^)]*)\)", t2)
-    if ms: state = ms.group(0)
+    ms = re.search(r"([A-Z]{4,})\s*\((\d+godz[^)]*)\)", t2)
+    if ms: state = f"{ms.group(1)}({ms.group(2)})"
     log("state:", state or "(没读到)")
 
     WSJS = """
