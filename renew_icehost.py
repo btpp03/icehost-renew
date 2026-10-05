@@ -319,7 +319,14 @@ def run(p, port):
     # 5) 保活：不在运行就 start
     state = ""
     ms = re.search(r"([A-Z]{4,})\s*\((\d+godz[^)]*)\)", t2)
-    if ms: state = f"{ms.group(1)}({ms.group(2)})"
+    if ms:
+        state = f"{ms.group(1)}({ms.group(2)})"
+    else:
+        up = (t2 + " " + t).upper()
+        for kw in ("RUNNING", "STARTING", "STOPPING", "STOPPED", "OFFLINE", "SUSPENDED"):
+            if kw in up:
+                state = kw
+                break
     log("state:", state or "(没读到)")
 
     WSJS = """
