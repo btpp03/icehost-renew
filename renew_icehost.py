@@ -262,12 +262,24 @@ def run(p, port):
     t = body()
     m = re.search(r"DATA WAŻNOŚCI:\s*([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8})", t)
     v0 = m.group(1) if m else ""
-    if not FULL:
-        m2 = re.search(r'([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', t)
-        full = m2.group(1) if m2 else ""
-    else:
-        full = FULL
-    log("validity before:", v0 or "(没读到)")
+    # 取完整 uuid（面板 API 给的是完整 uuid；页面文字里只有短 id）
+    full = FULL
+    if not full:
+        try:
+            js_info = page.evaluate("""async (u)=>{
+              try{
+                const r=await fetch('/api/client/servers/'+u,{headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},credentials:'same-origin'});
+                return await r.text();
+              }catch(e){ return 'ERR '+e; }
+            }""", UUID)
+            mm = re.search(r'"uuid"\s*:\s*"([0-9a-fA-F-]{36})"', js_info)
+            if mm:
+                full = mm.group(1)
+            else:
+                log("server API 片段:", js_info[:200])
+        except Exception as e:
+            log("取完整 uuid 失败:", str(e)[:120])
+    log("full uuid:", full or "(没拿到)")
 
     # 3) 续期
     if not full:
