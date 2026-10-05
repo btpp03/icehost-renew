@@ -14,7 +14,7 @@ IceHost.pl 免费服 —— GitHub Actions 续期 + 保活
   可选  TG_BOT_TOKEN / TG_CHAT_ID
   可选  ICEHOST_UUID (默认 7aaf1e7c)
 """
-import os, sys, json, time, subprocess, urllib.request, urllib.parse, datetime, tempfile, shutil
+import os, sys, json, time, subprocess, urllib.request, urllib.parse, datetime, tempfile, shutil, re
 
 UUID = os.environ.get("ICEHOST_UUID", "7aaf1e7c").strip()
 FULL = os.environ.get("ICEHOST_FULL_UUID", "").strip()
