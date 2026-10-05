@@ -196,17 +196,42 @@ def run(p, port):
         json.dumps(page.evaluate("()=>[...document.querySelectorAll('input')].map(e=>e.name)"), ensure_ascii=False))
 
     # 1) 登录
+    login_resps = []
+    def on_resp(r):
+        try:
+            if r.request.method in ("POST", "PUT") and "google" not in r.url and "tawk" not in r.url:
+                try: b = r.text()[:300]
+                except Exception: b = ""
+                login_resps.append((r.status, r.request.method, r.url[:100], b))
+        except Exception:
+            pass
+    page.on("response", on_resp)
     if "/auth/login" in page.url:
         try:
             page.fill("input[name=username]", EMAIL)
             page.fill("input[name=password]", PW)
-            try: page.click("button:has-text('Zaloguj się do panelu')", timeout=7000)
-            except Exception: page.click("button[type=submit]", timeout=7000)
-            page.wait_for_timeout(9000)
+            page.wait_for_timeout(800)
+            log("login buttons:", json.dumps(page.evaluate(
+                "()=>[...document.querySelectorAll('button')].map(e=>({t:(e.innerText||'').trim(),d:!!e.disabled}))"
+            ), ensure_ascii=False)[:300])
+            clicked = ""
+            for sel in ["button:has-text('Zaloguj się do panelu')", "button[type=submit]",
+                        "button:has-text('Zaloguj')"]:
+                try:
+                    el = page.query_selector(sel)
+                    if el:
+                        el.click(); clicked = sel; break
+                except Exception:
+                    continue
+            log("login clicked:", clicked)
+            page.wait_for_timeout(12000)
         except Exception as e:
             die(f"登录表单填写失败: {str(e)[:120]}")
         log("after login:", page.url)
+        log("login POSTs:", json.dumps(login_resps[-4:], ensure_ascii=False)[:600])
         if "/auth/login" in page.url:
+            t = body()
+            log("page text:", t[:400])
             die("登录失败（账号或密码不对，或被盾拦）")
 
     # 2) 打开服务器页，读续期前有效期
