@@ -170,14 +170,28 @@ def run(p, port):
         try: return " ".join((page.evaluate("document.body.innerText") or "").split())
         except Exception: return ""
 
-    # 0) 站点可达性
-    nav(BASE + "/auth/login", 6000)
-    log("after login-page:", page.url, "|", page.title())
+    # 0) 站点可达性（CF 挑战最多解 3 轮）
+    ok_page = False
+    for attempt in range(3):
+        nav(BASE + "/auth/login", 6000)
+        t = page.title()
+        log(f"after login-page (try {attempt+1}):", page.url, "|", t)
+        if "Just a moment" in t or "Cierpliwo" in t:
+            log("  -> 还在 CF 挑战，再解一轮")
+            if solve(page, budget=120):
+                page.wait_for_timeout(3000)
+                t = page.title()
+                log("  -> 解盾后 title:", t)
+            else:
+                log("  -> 本轮解盾失败")
+        if "Just a moment" not in t and "Cierpliwo" not in t:
+            ok_page = True
+            break
+    if not ok_page:
+        die(f"Cloudflare 挑战未通过（runner 出口被挡）title={page.title()}")
     txt = body()
-    if "WAF" in txt or "Challange" in txt or "Challenge" in txt:
+    if "WAF Challange" in txt or page.title().strip().endswith("- Block"):
         die(f"被面板 WAF 挡住 (title={page.title()})")
-    if "Just a moment" in page.title() or "Cierpliwo" in page.title():
-        die("Cloudflare 挑战未通过（runner IP 被挡）")
     log("login page ok, fields:",
         json.dumps(page.evaluate("()=>[...document.querySelectorAll('input')].map(e=>e.name)"), ensure_ascii=False))
 
