@@ -1,13 +1,15 @@
 name: IceHost Renew + Keepalive
 
 # 免费服有效期只有 24h，靠「DODAJ 6 GODZIN」每次 +6h 续。
-# 有冷却（刚续过会报 "niedawno to zrobiłeś"）→ 所以我们**每 2 小时试一次**，
-# 撞冷却算正常，能续就续，保证有效期一直往后顶。
-# 手动触发：Actions 页 → Run workflow
+# 有冷却（刚续过会报 "niedawno to zrobiłeś"）→ 每 2 小时试一次，撞冷却算正常。
+#
+# ⚠️ 实测：GitHub runner 的 Azure IP 被面板自带 WAF **硬封**（title = "IceHost - Block"），
+#    必须先经一个「干净出口」再访问。所以本 workflow 在 runner 内起 sing-box，
+#    用 secrets.ICEHOST_NODE（sing-box outbound JSON）做出口，浏览器走 socks5://127.0.0.1:1080。
 
 on:
   schedule:
-    - cron: '15 */2 * * *'      # UTC，每 2 小时一次（北京时间 :15）
+    - cron: '15 */2 * * *'      # UTC → 北京时间每 2 小时 :15
   workflow_dispatch:
 
 permissions:
@@ -29,7 +31,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install deps (playwright + chromium)
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -40,19 +42,42 @@ jobs:
         env:
           ICEHOST_EMAIL: ${{ secrets.ICEHOST_EMAIL }}
           ICEHOST_PW: ${{ secrets.ICEHOST_PW }}
+          ICEHOST_NODE: ${{ secrets.ICEHOST_NODE }}
         run: |
           if [ -z "$ICEHOST_EMAIL" ] || [ -z "$ICEHOST_PW" ]; then
             echo "::error::缺少 Secrets: ICEHOST_EMAIL / ICEHOST_PW"; exit 1
           fi
-          echo "✅ Secrets ok"
+          [ -n "$ICEHOST_NODE" ] && echo "✅ 出口节点已配置" || echo "::warning::未配 ICEHOST_NODE（无代理出口）"
 
-      - name: Run renew + keepalive
+      - name: Run renew + keepalive (with sing-box egress)
         env:
           ICEHOST_EMAIL: ${{ secrets.ICEHOST_EMAIL }}
           ICEHOST_PW: ${{ secrets.ICEHOST_PW }}
           ICEHOST_UUID: ${{ secrets.ICEHOST_UUID }}
+          ICEHOST_NODE: ${{ secrets.ICEHOST_NODE }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TZ: Asia/Shanghai
           DEBUG: '1'
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24" python3 renew_icehost.py
+        run: |
+          set -x
+          SB=""
+          if [ -n "$ICEHOST_NODE" ]; then
+            URL=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest \
+                  | grep -oE '"browser_download_url":[[:space:]]*"[^"]*linux-amd64\.tar\.gz"' | head -1 | cut -d'"' -f4)
+            echo "sing-box url: $URL"
+            curl -sL "$URL" -o /tmp/sb.tgz && tar -xzf /tmp/sb.tgz -C /tmp
+            SB=$(find /tmp -type f -name sing-box | head -1); chmod +x "$SB"
+            printf '%s' "$ICEHOST_NODE" > /tmp/node.json
+            "$SB" run -c /tmp/node.json > /tmp/sb.log 2>&1 &
+            sleep 6
+            echo "--- sing-box log ---"; cat /tmp/sb.log || true
+            echo "--- exit ip via proxy ---"
+            curl -s --max-time 20 -x socks5h://127.0.0.1:1080 https://api.ipify.org || echo "(proxy 不可用)"
+            echo
+            export PROXY="socks5://127.0.0.1:1080"
+          fi
+          xvfb-run -a --server-args="-screen 0 1440x900x24" python3 renew_icehost.py
+          RC=$?
+          [ -n "$SB" ] && kill %1 2>/dev/null || true
+          exit $RC

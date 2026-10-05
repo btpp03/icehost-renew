@@ -23,6 +23,7 @@ EMAIL = os.environ.get("ICEHOST_EMAIL", "").strip()
 PW = os.environ.get("ICEHOST_PW", "").strip()
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "").strip()
 TG_CHAT = os.environ.get("TG_CHAT_ID", "").strip()
+PROXY = os.environ.get("PROXY", "").strip()          # 例: socks5://127.0.0.1:1080
 DEBUG = os.environ.get("DEBUG", "0") == "1"
 
 TZ_CN = datetime.timezone(datetime.timedelta(hours=8))
@@ -61,6 +62,13 @@ def main():
         log("runner IP:", ip)
     except Exception:
         log("runner IP: 取不到")
+    if PROXY:
+        try:
+            out = subprocess.run(["curl", "-s", "--max-time", "20", "-x", PROXY, "https://api.ipify.org"],
+                                 capture_output=True, text=True, timeout=30)
+            log("proxy exit IP:", (out.stdout or "").strip() or f"(失败: {out.stderr.strip()[:80]})")
+        except Exception as e:
+            log("proxy exit IP: 检查失败", e)
 
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -71,12 +79,17 @@ def main():
         env = dict(os.environ)
         for k in ("http_proxy","https_proxy","HTTP_PROXY","HTTPS_PROXY","all_proxy","ALL_PROXY"):
             env.pop(k, None)
-        chrome = subprocess.Popen([
+        chrome_args = [
             exe, f"--remote-debugging-port={port}", f"--user-data-dir={prof}",
             "--no-sandbox", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
             "--disable-blink-features=AutomationControlled",
             f"--window-size=1440,900", "about:blank",
-        ], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ]
+        if PROXY:
+            chrome_args.insert(-2, f"--proxy-server={PROXY}")
+            log("browser proxy:", PROXY)
+        chrome = subprocess.Popen(chrome_args,
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         ok = False
         for _ in range(60):
