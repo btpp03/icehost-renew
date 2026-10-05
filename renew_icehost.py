@@ -362,7 +362,8 @@ def run(p, port):
     else:
         msg = f"❌ IceHost 续期失败\nresp: {raw[:200]}\n状态: {state or '?'}"
     log(msg)
-    tg(msg)
+    if not cooling:      # 冷却 = 正常状态，不推 TG（否则每 2h 一条噪音）
+        tg(msg)
     if not renewed and not cooling:
         sys.exit(1)
 

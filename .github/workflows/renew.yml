@@ -43,11 +43,16 @@ jobs:
           ICEHOST_EMAIL: ${{ secrets.ICEHOST_EMAIL }}
           ICEHOST_PW: ${{ secrets.ICEHOST_PW }}
           ICEHOST_NODE: ${{ secrets.ICEHOST_NODE }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
         run: |
           if [ -z "$ICEHOST_EMAIL" ] || [ -z "$ICEHOST_PW" ]; then
             echo "::error::缺少 Secrets: ICEHOST_EMAIL / ICEHOST_PW"; exit 1
           fi
           [ -n "$ICEHOST_NODE" ] && echo "✅ 出口节点已配置" || echo "::warning::未配 ICEHOST_NODE（无代理出口）"
+          if [ -n "$TG_BOT_TOKEN" ]; then
+            echo -n "TG 连通性: "
+            curl -s --max-time 20 "https://api.telegram.org/bot$TG_BOT_TOKEN/getMe" | head -c 120; echo
+          fi
 
       - name: Run renew + keepalive (with sing-box egress)
         env:
