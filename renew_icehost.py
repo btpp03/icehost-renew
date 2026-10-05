@@ -86,8 +86,11 @@ def main():
             f"--window-size=1440,900", "about:blank",
         ]
         if PROXY:
+            # 只让面板走代理；Google reCAPTCHA 等直连（否则 grecaptcha 加载失败，登录提交会抛错）
             chrome_args.insert(-2, f"--proxy-server={PROXY}")
-            log("browser proxy:", PROXY)
+            chrome_args.insert(-2,
+                "--proxy-bypass-list=*.google.com,*.gstatic.com,*.googleapis.com,*.recaptcha.net,localhost,127.0.0.1")
+            log("browser proxy:", PROXY, "(google/reCAPTCHA 域走直连)")
         chrome = subprocess.Popen(chrome_args,
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
