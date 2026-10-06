@@ -9,7 +9,7 @@ name: IceHost Renew + Keepalive
 
 on:
   schedule:
-    - cron: '*/10 * * * *'      # UTC → 北京时间每 2 小时 :15
+    - cron: '23 */2 * * *'      # UTC → 北京时间每 2 小时 :15
   workflow_dispatch:
 
 permissions:
