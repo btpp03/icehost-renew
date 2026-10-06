@@ -9,7 +9,7 @@ name: IceHost Renew + Keepalive
 
 on:
   schedule:
-    - cron: '23 */2 * * *'      # UTC → 北京时间每 2 小时 :15
+    - cron: '7,37 * * * *'      # 每小时 :07 / :37（UTC）——该账号会大量丢 schedule 触发，需要高频率补命中率
   workflow_dispatch:
 
 permissions:
