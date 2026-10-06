@@ -316,18 +316,31 @@ def run(p, port):
     m3 = re.search(r"DATA WAŻNOŚCI:\s*([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8})", t2)
     v1 = m3.group(1) if m3 else ""
 
-    # 5) 保活：不在运行就 start
-    state = ""
-    ms = re.search(r"([A-Z]{4,})\s*\((\d+godz[^)]*)\)", t2)
-    if ms:
-        state = f"{ms.group(1)}({ms.group(2)})"
-    else:
+    # 5) 保活：读服务器真实状态。⚠️ 面板是波兰语，爬页面找 "RUNNING" 找不到 → 走 Pterodactyl 式 API 直问
+    state, cpu, ram = "", "", ""
+    try:
+        res = page.evaluate("""async (u)=>{
+          try{
+            const r=await fetch('/api/client/servers/'+u+'/resources',
+              {headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},credentials:'same-origin'});
+            return await r.text();
+          }catch(e){ return 'ERR '+e; }
+        }""", full or UUID)
+        log("resources API:", res[:300])
+        at = (json.loads(res) or {}).get("attributes") or {}
+        state = str(at.get("current_state") or at.get("status")
+                    or (at.get("resources") or {}).get("state") or "").upper()
+        rs = at.get("resources") or {}
+        cpu = rs.get("cpu_absolute"); ram = rs.get("memory_bytes")
+    except Exception as e:
+        log("读状态失败:", str(e)[:120])
+    if not state:                      # 兜底：老办法爬文字
         up = (t2 + " " + t).upper()
         for kw in ("RUNNING", "STARTING", "STOPPING", "STOPPED", "OFFLINE", "SUSPENDED"):
             if kw in up:
                 state = kw
                 break
-    log("state:", state or "(没读到)")
+    log("state:", state or "(没读到)", "| cpu:", cpu, "| ram:", ram)
 
     WSJS = """
     async (sig) => {
@@ -354,15 +367,60 @@ def run(p, port):
         started = page.evaluate(WSJS, "start")
         log("server 不在运行 -> 已发 start:", started)
 
-    # 6) 汇报
-    if renewed:
-        msg = f"✅ IceHost 续期成功\n{v0} → {v1 or '?'}\n状态: {state or '?'}"
-    elif cooling:
-        msg = f"ℹ️ IceHost 冷却中（刚续过），未变更\n当前有效期: {v1 or v0 or '?'}\n状态: {state or '?'}"
+    # 6) 汇报：写清「续期结果 + 有效期 + 剩余 + 保活」，别只丢两个时间戳
+    now = datetime.datetime.now(TZ_CN)
+
+    def remain(v):
+        try:
+            d = datetime.datetime.strptime(v, "%Y-%m-%d %H:%M:%S").replace(tzinfo=TZ_CN)
+            mn = int((d - now).total_seconds() // 60)
+            return f"{mn // 60}小时{mn % 60}分" if mn >= 0 else f"已过期{-mn // 60}小时{-mn % 60}分"
+        except Exception:
+            return "?"
+
+    def mem(b):
+        try:
+            b = float(b)
+        except Exception:
+            return "?"
+        return f"{b / 1048576:.0f}MB" if b < 1073741824 else f"{b / 1073741824:.2f}GB"
+
+    NAMES = {"RUNNING": "运行中 🟢", "STARTING": "启动中 🟡", "STOPPING": "停止中 🟡",
+             "STOPPED": "已停止 🔴", "OFFLINE": "离线 🔴", "SUSPENDED": "已暂停 🔴"}
+    srv = NAMES.get(state, state) if state else "没读到 ⚪"
+    if state and cpu not in (None, "") and ram not in (None, ""):
+        try:
+            srv += f"（CPU {float(cpu):.1f}% / RAM {mem(ram)}）"
+        except Exception:
+            pass
+    if not state:
+        keep = "状态没读到 → 这轮保活空转 ⚠️"
+    elif state in ("RUNNING", "STARTING"):
+        keep = "无需动作（在线）"
     else:
-        msg = f"❌ IceHost 续期失败\nresp: {raw[:200]}\n状态: {state or '?'}"
+        keep = f"不在运行 → 已发 start，回执 {started or '?'}"
+    trig = "定时(schedule)" if os.environ.get("GITHUB_EVENT_NAME") == "schedule" else "手动"
+    stamp = f"🕒 {now:%m-%d %H:%M} BJ ｜ {trig}触发"
+
+    if renewed:
+        msg = (f"✅ IceHost 续期成功（+6h）\n"
+               f"有效期：{v1 or '?'}（之前 {v0 or '?'}）\n"
+               f"剩余：{remain(v1)}\n"
+               f"服务器：{srv}\n保活：{keep}\n{stamp}")
+    elif cooling:
+        cur = v1 or v0
+        msg = (f"ℹ️ IceHost 冷却中（刚续过），有效期未变\n"
+               f"有效期：{cur or '?'}\n剩余：{remain(cur)}\n"
+               f"服务器：{srv}\n保活：{keep}\n{stamp}")
+    else:
+        msg = (f"❌ IceHost 续期失败\n"
+               f"原因：{(bod or raw)[:200]}\n"
+               f"有效期：{v1 or v0 or '?'}\n剩余：{remain(v1 or v0)}\n"
+               f"服务器：{srv}\n保活：{keep}\n{stamp}")
     log(msg)
-    if not cooling:      # 冷却 = 正常状态，不推 TG（否则每 2h 一条噪音）
+    # 定时触发：正常态(冷却)静默，避免每 2h 一条噪音。
+    # 手动触发：总是推送 —— 手动就是为了看结果，否则你点了却什么都收不到。
+    if (not cooling) or trig.startswith("手动"):
         tg(msg)
     if not renewed and not cooling:
         sys.exit(1)
